@@ -110,7 +110,7 @@ hex_purge_caster	202	timer	0	0	0	0	1
 mind_barrier	203	timer	0	0	0	0	0
 enhanced_entropy_passive	204	timer	0	0	0	0	0
 sigil_caster	205	timer	0	0	0	0	0
-psychic_ward	206	resource	427	428	387	8	1
+psychic_ward	206	resource	361	362	387	8	1
 bind_demon_caster	207	timer	0	0	0	0	0
 consume	208	timer	0	0	0	0	1
 engorge	211	timer	0	0	0	0	1
