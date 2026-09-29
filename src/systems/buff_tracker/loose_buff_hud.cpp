@@ -186,8 +186,10 @@ bool ValidateAndNormalize(std::string& bytes, std::string& error) noexcept {
                 return false;
             }
             if (enabled != 0) {
-                if (cells[2] == "timer" && (valueStat || maxStat || skillId || shift)) {
-                    error = "row " + std::to_string(rowNumber) + ": timer columns must be zero";
+                if (cells[2] == "timer"
+                    && (valueStat || maxStat || skillId > 4095 || shift)) {
+                    error = "row " + std::to_string(rowNumber)
+                        + ": timer value_stat/max_stat/value_shift must be zero and skill_id <= 4095";
                     return false;
                 }
                 if (cells[2] == "resource"

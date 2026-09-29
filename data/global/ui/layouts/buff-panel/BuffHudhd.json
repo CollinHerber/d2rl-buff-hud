@@ -14,7 +14,7 @@
       "name": "BuffGrid",
       "fields": {
         "rect": {
-          "x": -150,
+          "x": 50,
           "y": -515,
           "width": 780,
           "height": 300

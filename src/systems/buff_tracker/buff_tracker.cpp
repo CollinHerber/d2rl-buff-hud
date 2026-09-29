@@ -1,4 +1,5 @@
 #include "buff_tracker.hpp"
+#include "timer_metadata.hpp"
 
 #include "core/buff_display_bus.hpp"
 #include "core/services.hpp"
@@ -38,11 +39,11 @@ bone_armor	14	resource	132	133	68	8	1
 concentrate_attack_state	15	timer	0	0	0	0	0
 enchant	16	timer	0	0	0	0	1
 chilling_armor	20	timer	0	0	0	0	1
-shout	26	timer	0	0	0	0	1
+shout	26	timer	0	0	138	0	1
 conviction_aura	28	timer	0	0	0	0	0
 energy_shield	30	timer	0	0	0	0	1
 venom	31	timer	0	0	0	0	1
-battle_orders	32	timer	0	0	0	0	1
+battle_orders	32	timer	0	0	149	0	1
 might_aura	33	timer	0	0	0	0	0
 prayer_aura	34	timer	0	0	0	0	0
 holy_fire_aura	35	timer	0	0	0	0	0
@@ -59,7 +60,7 @@ sanctuary_aura	47	timer	0	0	0	0	0
 meditation_aura	48	timer	0	0	0	0	0
 fanaticism_aura	49	timer	0	0	0	0	0
 redemption_aura	50	timer	0	0	0	0	0
-battle_command	51	timer	0	0	0	0	1
+battle_command	51	timer	0	0	155	0	1
 critical_strike_passive	64	timer	0	0	0	0	0
 dodge_passive	65	timer	0	0	0	0	0
 avoid_passive	66	timer	0	0	0	0	0
@@ -158,14 +159,15 @@ using GetStatListFromUnitAndStateFn = void*(__fastcall*)(void* unit, std::int32_
 // 1.0.2 on D2R build 93847. buff-hud.txt is the authoritative whitelist and
 // also declares how each state is presented: finite timer or resource pool.
 // Native CURSE lists remain excluded as a safety boundary. Timer rows require
-// finite future expiry metadata; resource rows read their current/max values
-// through the already-owned Core unit-stat reader and do not require an expiry.
+// finite future expiry metadata. Native skill ID is preferred; timer skill_id
+// is an optional fallback when the StatList exposes skill=0. skillLevel is not
+// used for qualification. Resource rows read their current/max values through
+// the already-owned Core unit-stat reader and do not require an expiry.
 constexpr std::uint32_t UnitTypeOffset = 0x00;
 constexpr std::uint32_t PlayerUnitType = 0;
 constexpr std::uint32_t StatListCurseFlag = 0x00000020u;
 constexpr std::uint32_t SharedStashProxyState = 186u; // states.txt: sharedstash; D2RLoader 1.3 proxy marker
 constexpr std::uint32_t FramesPerSecond = 25;
-constexpr std::uint32_t MaximumPlausibleDurationFrames = FramesPerSecond * 60u * 60u * 24u * 7u;
 
 const D2RL::PluginContext* Context{};
 const D2RL::ResourceService* Resources{};
@@ -263,7 +265,6 @@ std::atomic<std::uint64_t> TableLoadFailures{};
 std::atomic<std::uint32_t> LastFlags{};
 std::atomic<std::uint32_t> LastState{};
 std::atomic<std::uint32_t> LastSkill{};
-std::atomic<std::uint32_t> LastSkillLevel{};
 std::atomic<std::uint32_t> LastExpireFrame{};
 std::atomic<std::uint32_t> LastCurrentFrame{};
 std::atomic<std::int32_t> LastResourceCurrent{};
@@ -446,8 +447,9 @@ template <typename T>
         definition.stateId = row.stateId;
         const std::string_view displayType{row.displayType, strnlen(row.displayType, sizeof(row.displayType))};
         if (displayType == "timer") {
-            if (row.valueStat != 0 || row.maxStat != 0 || row.skillId != 0 || row.valueShift != 0) return {};
+            if (row.valueStat != 0 || row.maxStat != 0 || row.skillId > 4095 || row.valueShift != 0) return {};
             definition.displayMode = Core::BuffDisplayMode::Timer;
+            definition.sourceSkillId = static_cast<std::int32_t>(row.skillId);
         } else if (displayType == "resource") {
             if (row.valueStat == 0 || row.maxStat == 0 || row.skillId == 0
                 || row.valueStat > 4095 || row.maxStat > 4095 || row.skillId > 4095
@@ -572,17 +574,9 @@ void RecordTimerPresence(
 // The native list can be re-used when a skill such as Venom is recast. A
 // STATLIST_PostStatList notification is not guaranteed for an in-place update:
 // read the *currently attached* state every frame, not only its presence.
-// These five consecutive fields were qualified on build 93847. Copying them
-// together requires one readable-range probe per live state, rather than five.
-struct NativeTimerMetadata final {
-    std::uint32_t flags{};
-    std::uint32_t state{};
-    float expireFrameFloat{};
-    std::uint32_t skill{};
-    std::uint32_t skillLevel{};
-};
-static_assert(sizeof(NativeTimerMetadata) == Native::Contract::StatListBuffMetadataBytes
-    - Native::Contract::StatListBuffFlagsOffset);
+// Keep the original 0x30 native readable-range qualification, while the logical
+// timer model intentionally stops before the unused skillLevel field at +0x2C.
+using NativeTimerMetadata = Internal::TimerMetadata;
 
 [[nodiscard]] bool ReadLiveTimerExpiry(
     void* statList,
@@ -590,26 +584,12 @@ static_assert(sizeof(NativeTimerMetadata) == Native::Contract::StatListBuffMetad
     std::uint32_t currentFrame,
     std::uint32_t& liveExpiry) noexcept {
     NativeTimerMetadata metadata{};
-    if (!ReadField(statList, Native::Contract::StatListBuffFlagsOffset, metadata)
-        || metadata.state != record.stateId
-        || metadata.skill != record.skillId
-        || metadata.skillLevel == 0
-        || (metadata.flags & StatListCurseFlag) != 0
-        || !std::isfinite(metadata.expireFrameFloat)) {
-        return false;
-    }
-    const auto rounded = std::floor(metadata.expireFrameFloat + 0.5f);
-    if (rounded <= 0.0f || rounded >= 4294967296.0f
-        || std::fabs(metadata.expireFrameFloat - rounded) > 0.01f) {
-        return false;
-    }
-    const auto expiry = static_cast<std::uint32_t>(rounded);
-    if (!IsFrameInFuture(expiry, currentFrame)
-        || expiry - currentFrame > MaximumPlausibleDurationFrames) {
-        return false;
-    }
-    liveExpiry = expiry;
-    return true;
+    std::uint32_t skill{};
+    return IsReadableRange(statList, Native::Contract::StatListBuffMetadataBytes)
+        && ReadField(statList, Native::Contract::StatListBuffFlagsOffset, metadata)
+        && Internal::ResolveTimer(
+            metadata, record.stateId, record.skillId, currentFrame, skill, liveExpiry)
+        && skill == record.skillId;
 }
 
 // Retain the established expiry/presence lifecycle. The renewal path is
@@ -880,26 +860,28 @@ void DiscoverAttachedTimers(std::uint32_t currentFrame) noexcept {
         TimerDiscoveryStateHits.fetch_add(1, std::memory_order_relaxed);
 
         NativeTimerMetadata metadata{};
-        if (!ReadField(nativeState, Native::Contract::StatListBuffFlagsOffset, metadata)
-            || metadata.state != state || metadata.skill == 0 || metadata.skillLevel == 0
-            || (metadata.flags & StatListCurseFlag) != 0) {
+        std::uint32_t skill{}, expiry{};
+        if (!IsReadableRange(nativeState, Native::Contract::StatListBuffMetadataBytes)
+            || !ReadField(nativeState, Native::Contract::StatListBuffFlagsOffset, metadata)
+            || !Internal::ResolveTimer(
+                metadata,
+                state,
+                definition.sourceSkillId > 0
+                    ? static_cast<std::uint32_t>(definition.sourceSkillId) : 0u,
+                currentFrame,
+                skill,
+                expiry)) {
             TimerDiscoveryInvalid.fetch_add(1, std::memory_order_relaxed);
             LastDiscoveryResult.store(2, std::memory_order_relaxed);
+            LastDiscoverySkill.store(skill, std::memory_order_relaxed);
             continue;
         }
         const TimerPresenceRecord witness{
-            .key = AutomaticBuffKey(state, metadata.skill),
+            .key = AutomaticBuffKey(state, skill),
             .stateId = state,
-            .skillId = metadata.skill,
+            .skillId = skill,
         };
-        std::uint32_t expiry{};
-        if (!ReadLiveTimerExpiry(nativeState, witness, currentFrame, expiry)) {
-            TimerDiscoveryInvalid.fetch_add(1, std::memory_order_relaxed);
-            LastDiscoveryResult.store(2, std::memory_order_relaxed);
-            LastDiscoverySkill.store(metadata.skill, std::memory_order_relaxed);
-            continue;
-        }
-        LastDiscoverySkill.store(metadata.skill, std::memory_order_relaxed);
+        LastDiscoverySkill.store(skill, std::memory_order_relaxed);
         LastDiscoveryExpiry.store(expiry, std::memory_order_relaxed);
         bool alreadyPublished = false;
         for (std::size_t i = 0; i < snapshot.count; ++i) {
@@ -915,7 +897,7 @@ void DiscoverAttachedTimers(std::uint32_t currentFrame) noexcept {
         }
         Core::BuffDisplayEntry entry{};
         entry.key = witness.key;
-        entry.sourceSkillId = static_cast<std::int32_t>(metadata.skill);
+        entry.sourceSkillId = static_cast<std::int32_t>(skill);
         entry.displayMode = Core::BuffDisplayMode::Timer;
         entry.expireGameFrame = expiry;
         entry.stacks = 1;
@@ -925,7 +907,7 @@ void DiscoverAttachedTimers(std::uint32_t currentFrame) noexcept {
             LastDiscoveryResult.store(5, std::memory_order_relaxed);
             continue;
         }
-        RecordTimerPresence(witness.key, state, metadata.skill, expiry, currentFrame);
+        RecordTimerPresence(witness.key, state, skill, expiry, currentFrame);
         TimerDiscoveryPublishes.fetch_add(1, std::memory_order_relaxed);
         BuffPostsAccepted.fetch_add(1, std::memory_order_relaxed);
         LastDiscoveryResult.store(4, std::memory_order_relaxed);
@@ -1001,12 +983,10 @@ void OnStatListPost(
     std::uint32_t state{};
     float expireFrameFloat{};
     std::uint32_t skill{};
-    std::uint32_t skillLevel{};
     if (!ReadField(event.statList, Native::Contract::StatListBuffFlagsOffset, flags)
         || !ReadField(event.statList, Native::Contract::StatListBuffStateOffset, state)
         || !ReadField(event.statList, Native::Contract::StatListBuffExpireFrameFloatOffset, expireFrameFloat)
-        || !ReadField(event.statList, Native::Contract::StatListBuffSkillIdOffset, skill)
-        || !ReadField(event.statList, Native::Contract::StatListBuffSkillLevelOffset, skillLevel)) {
+        || !ReadField(event.statList, Native::Contract::StatListBuffSkillIdOffset, skill)) {
         if (phase == Core::StatListPostPhase::BeforeNative) {
             RejectedInvalidMetadata.fetch_add(1, std::memory_order_relaxed);
         }
@@ -1043,7 +1023,6 @@ void OnStatListPost(
         LastFlags.store(flags, std::memory_order_relaxed);
         LastState.store(state, std::memory_order_relaxed);
         LastSkill.store(skill, std::memory_order_relaxed);
-        LastSkillLevel.store(skillLevel, std::memory_order_relaxed);
     }
 
     const auto cache = Whitelist.load(std::memory_order_acquire);
@@ -1064,35 +1043,26 @@ void OnStatListPost(
     if (session == 0) return;
 
     if (definition->displayMode == Core::BuffDisplayMode::Timer) {
-        if (state == 0 || skill == 0 || skillLevel == 0) {
-            if (phase == Core::StatListPostPhase::BeforeNative) {
-                RejectedInvalidMetadata.fetch_add(1, std::memory_order_relaxed);
-            }
-            return;
-        }
-        // Timer semantic fields were runtime-qualified before the native post.
         if (phase != Core::StatListPostPhase::BeforeNative) return;
-        if (!std::isfinite(expireFrameFloat)) {
+        const NativeTimerMetadata metadata{flags, state, expireFrameFloat, skill};
+        std::uint32_t resolvedSkill{};
+        std::uint32_t expireFrame{};
+        if (!Internal::ResolveTimer(
+                metadata,
+                definition->stateId,
+                definition->sourceSkillId > 0
+                    ? static_cast<std::uint32_t>(definition->sourceSkillId) : 0u,
+                currentFrame,
+                resolvedSkill,
+                expireFrame)) {
             RejectedInvalidMetadata.fetch_add(1, std::memory_order_relaxed);
             return;
         }
-        const auto rounded = std::floor(expireFrameFloat + 0.5f);
-        if (rounded <= 0.0f || rounded > static_cast<float>(UINT32_MAX)
-            || std::fabs(expireFrameFloat - rounded) > 0.01f) {
-            RejectedInvalidMetadata.fetch_add(1, std::memory_order_relaxed);
-            return;
-        }
-        const auto expireFrame = static_cast<std::uint32_t>(rounded);
         LastExpireFrame.store(expireFrame, std::memory_order_relaxed);
-        const auto duration = expireFrame - currentFrame;
-        if (expireFrame <= currentFrame || duration > MaximumPlausibleDurationFrames) {
-            RejectedNoExpiry.fetch_add(1, std::memory_order_relaxed);
-            return;
-        }
 
         Core::BuffDisplayEntry entry{};
-        entry.key = AutomaticBuffKey(state, skill);
-        entry.sourceSkillId = static_cast<std::int32_t>(skill);
+        entry.key = AutomaticBuffKey(state, resolvedSkill);
+        entry.sourceSkillId = static_cast<std::int32_t>(resolvedSkill);
         entry.displayMode = Core::BuffDisplayMode::Timer;
         entry.expireGameFrame = expireFrame;
         entry.stacks = 1;
@@ -1101,7 +1071,7 @@ void OnStatListPost(
             PublishFailures.fetch_add(1, std::memory_order_relaxed);
             return;
         }
-        RecordTimerPresence(entry.key, state, skill, expireFrame, currentFrame);
+        RecordTimerPresence(entry.key, state, resolvedSkill, expireFrame, currentFrame);
         BuffPostsAccepted.fetch_add(1, std::memory_order_relaxed);
         return;
     }
@@ -1207,11 +1177,10 @@ D2RL::ConsoleCommandResult __cdecl TrackerCommand(
     std::snprintf(
         line,
         sizeof(line),
-        "BuffPanel BuffTracker last semantic witness: flags=0x%08X state=%u skill=%u slvl=%u expire=%u current=%u remaining=%lld frames (%.2fs).",
+        "BuffPanel BuffTracker last semantic witness: flags=0x%08X state=%u nativeSkill=%u expire=%u current=%u remaining=%lld frames (%.2fs).",
         LastFlags.load(std::memory_order_relaxed),
         LastState.load(std::memory_order_relaxed),
         LastSkill.load(std::memory_order_relaxed),
-        LastSkillLevel.load(std::memory_order_relaxed),
         lastExpire,
         lastCurrent,
         static_cast<long long>(remaining),
@@ -1392,7 +1361,6 @@ void ResetDiagnostics() noexcept {
     LastFlags.store(0, std::memory_order_relaxed);
     LastState.store(0, std::memory_order_relaxed);
     LastSkill.store(0, std::memory_order_relaxed);
-    LastSkillLevel.store(0, std::memory_order_relaxed);
     LastExpireFrame.store(0, std::memory_order_relaxed);
     LastCurrentFrame.store(0, std::memory_order_relaxed);
     LastResourceCurrent.store(0, std::memory_order_relaxed);
@@ -1486,7 +1454,7 @@ bool Initialize(const D2RL::PluginContext* context) noexcept {
 
     ResetDiagnostics();
     Context->LogInfo(
-        "Buff Panel 1.0.6 BuffTracker initialized: whitelisted timer states are discovered from attached native player states once per game frame even without STATLIST_PostStatList; qualified expiry renewals, early removal and resource-mode polling remain supported.");
+        "Buff Panel 1.0.10 BuffTracker initialized: 1.0.7 timer lifecycle preserved; skillLevel is not a qualification field; native skill ID is preferred with optional buff-hud.txt skill_id fallback; finite future native expiry remains required; timer resolution is centralized and tested.");
     return true;
 }
 

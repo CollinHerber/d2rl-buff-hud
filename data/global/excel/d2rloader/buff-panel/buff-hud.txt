@@ -9,11 +9,11 @@ bone_armor	14	resource	132	133	68	8	1
 concentrate_attack_state	15	timer	0	0	0	0	0
 enchant	16	timer	0	0	0	0	1
 chilling_armor	20	timer	0	0	0	0	1
-shout	26	timer	0	0	0	0	1
+shout	26	timer	0	0	138	0	1
 conviction_aura	28	timer	0	0	0	0	0
 energy_shield	30	timer	0	0	0	0	1
 venom	31	timer	0	0	0	0	1
-battle_orders	32	timer	0	0	0	0	1
+battle_orders	32	timer	0	0	149	0	1
 might_aura	33	timer	0	0	0	0	0
 prayer_aura	34	timer	0	0	0	0	0
 holy_fire_aura	35	timer	0	0	0	0	0
@@ -30,7 +30,7 @@ sanctuary_aura	47	timer	0	0	0	0	0
 meditation_aura	48	timer	0	0	0	0	0
 fanaticism_aura	49	timer	0	0	0	0	0
 redemption_aura	50	timer	0	0	0	0	0
-battle_command	51	timer	0	0	0	0	1
+battle_command	51	timer	0	0	155	0	1
 critical_strike_passive	64	timer	0	0	0	0	0
 dodge_passive	65	timer	0	0	0	0	0
 avoid_passive	66	timer	0	0	0	0	0
