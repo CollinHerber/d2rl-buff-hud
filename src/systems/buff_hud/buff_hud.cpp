@@ -110,6 +110,29 @@ std::atomic<std::uint64_t> ExpiredEntriesRemoved{};
 std::atomic<std::uint64_t> PanelOpenFailures{};
 std::atomic<std::uint64_t> WidgetResolveFailures{};
 std::atomic<std::uint64_t> WidgetEnableFailures{};
+// Native FocusableWidget hover targets and the panel/grid may prevent D2R
+// gameplay input despite atlas ButtonWidgets being disabled. SDK V1 has no
+// explicit "do not intercept world clicks" flag for plugin panels, so keep a
+// reversible, UI-thread-only A/B policy while diagnosing native hit testing.
+enum class MousePolicy : std::uint8_t {
+    Gameplay = 0,     // disable all HUD hit-test candidates
+    NoTooltips = 1,   // disable tooltip FocusableWidgets only
+    Original = 2,     // native hover behavior (fork default)
+};
+std::atomic<MousePolicy> CurrentMousePolicy{MousePolicy::Original};
+std::atomic<std::uint64_t> MousePolicyApplications{};
+std::atomic<std::uint64_t> MousePolicyFailures{};
+std::atomic<bool> MousePolicyLastApplied{};
+
+[[nodiscard]] const char* MousePolicyName(MousePolicy policy) noexcept {
+    switch (policy) {
+    case MousePolicy::Gameplay: return "gameplay";
+    case MousePolicy::NoTooltips: return "no-tooltips";
+    case MousePolicy::Original: return "original";
+    }
+    return "unknown";
+}
+
 std::atomic<std::uint64_t> TooltipNameResolveFailures{};
 std::atomic<std::uint64_t> TooltipQualificationFailures{};
 std::atomic<std::uint64_t> TooltipWrites{};
@@ -304,6 +327,7 @@ void MakeTooltipReserveUtf16(std::size_t slotIndex, std::array<std::uint16_t, To
 
 [[nodiscard]] bool SetVisible(D2RL::Widgets::WidgetHandle handle, bool visible) noexcept;
 [[nodiscard]] bool SetEnabled(D2RL::Widgets::WidgetHandle handle, bool enabled) noexcept;
+[[nodiscard]] bool ApplyMousePolicy() noexcept;
 
 [[nodiscard]] bool ResolveWidgetHandles() noexcept {
     if (HandlesResolved) return true;
@@ -350,7 +374,9 @@ void MakeTooltipReserveUtf16(std::size_t slotIndex, std::array<std::uint16_t, To
         // hit target. Empty BuffHud slots are display placeholders, so disable
         // every atlas button as soon as handles are resolved. Occupied slots
         // keep the selected atlas visible but disabled. A separate slot-local
-        // FocusableWidget owns hover-only tooltip presentation.
+        // FocusableWidget owns optional hover-only tooltip presentation.
+        // In optional gameplay mode ApplyMousePolicy also disables the tooltip,
+        // all slots, the grid and the panel to prioritize world input.
         for (const auto icon : slot.icons) {
             if (!SetEnabled(icon, false)) {
                 WidgetEnableFailures.fetch_add(1, std::memory_order_relaxed);
@@ -359,6 +385,7 @@ void MakeTooltipReserveUtf16(std::size_t slotIndex, std::array<std::uint16_t, To
     }
 
     HandlesResolved = true;
+    (void)ApplyMousePolicy();
     return true;
 }
 
@@ -435,6 +462,48 @@ void InvalidateWidgetHandles() noexcept {
 [[nodiscard]] bool SetEnabled(D2RL::Widgets::WidgetHandle handle, bool enabled) noexcept {
     if (Context == nullptr || Widgets == nullptr || handle == D2RL::Widgets::InvalidHandle) return false;
     return Widgets->setWidgetEnabled(Context, handle, enabled) == D2RL::Widgets::Result::Success;
+}
+
+// Call only on the UI thread, after ResolveWidgetHandles. A disabled widget
+// can still be drawn in D2R (this is already how the atlas ButtonWidgets are
+// rendered), but it cannot be relied on for native hover. Do not pretend that
+// this proves end-to-end click-through: the test must also cover Panel hit-test
+// behavior in the running game.
+[[nodiscard]] bool ApplyMousePolicy() noexcept {
+    if (!HandlesResolved || Context == nullptr || Widgets == nullptr) return false;
+    const auto policy = CurrentMousePolicy.load(std::memory_order_acquire);
+    const bool gameplay = policy == MousePolicy::Gameplay;
+    const bool nativeTooltips = policy == MousePolicy::Original;
+    bool allSucceeded = true;
+    auto set = [&](D2RL::Widgets::WidgetHandle handle, bool enabled) noexcept {
+        if (!SetEnabled(handle, enabled)) {
+            MousePolicyFailures.fetch_add(1, std::memory_order_relaxed);
+            WidgetEnableFailures.fetch_add(1, std::memory_order_relaxed);
+            allSucceeded = false;
+        }
+    };
+
+    // Restore child/parent enabled flags in the reverse order of disabling.
+    // This is a diagnostic A/B switch, not a new panel or a native hook.
+    if (!gameplay) {
+        set(HudPanel, true);
+        set(GridWidget, true);
+    }
+    for (auto& slot : Handles) {
+        set(slot.slot, !gameplay);
+        set(slot.tooltip, nativeTooltips);
+        // Never make atlas buttons interactive, including in original mode.
+        for (const auto icon : slot.icons) set(icon, false);
+    }
+    if (gameplay) {
+        set(GridWidget, false);
+        set(HudPanel, false);
+    }
+    MousePolicyApplications.fetch_add(1, std::memory_order_relaxed);
+    MousePolicyLastApplied.store(allSucceeded, std::memory_order_release);
+    if (!allSucceeded) Context->LogWarn(
+        "Buff Panel: one or more widget enabled-state updates failed; gameplay input isolation has NOT been established.");
+    return allSucceeded;
 }
 
 [[nodiscard]] void* ResolveNativeSlotChild(std::size_t slotIndex, const char* childName) noexcept {
@@ -639,7 +708,10 @@ void InvalidateWidgetHandles() noexcept {
             return false;
         }
         auto* buffer = reinterpret_cast<char*>(dataPointer);
-        if (!Internal::StoreTooltipText(buffer, std::string_view(text, utf8Length))) return false;
+        if (!Internal::StoreTooltipText(buffer, std::string_view(text, utf8Length))) {
+            TooltipWriteFailures.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
         nativeLength = utf8Length;
         if (std::memcmp(buffer, text, utf8Length + 1) != 0) {
             TooltipWriteFailures.fetch_add(1, std::memory_order_relaxed);
@@ -717,11 +789,8 @@ void ApplyTooltip(
         return;
     }
 
-    // The selected atlas ButtonWidget remains disabled/click-through. Hover is
-    // supplied by the slot-local FocusableWidget instead. Its tooltip buffer is
-    // blank while the slot is inactive and contains only the localized SkillDesc
-    // name while occupied; it has no click action and therefore does not turn the
-    // buff icon back into a button.
+    // Native hover is optional: a FocusableWidget may intercept world clicks.
+    // Preserve the valid-text visibility guard independently of the mouse mode.
     RenderStates[slotIndex].tooltipVisible = SetVisible(Handles[slotIndex].tooltip, true);
 }
 
@@ -1244,7 +1313,7 @@ void PrintStatus(const D2RL::PluginContext* context) noexcept {
     std::snprintf(
         line,
         sizeof(line),
-        "Buff Panel 1.0.9 BuffHud: layout=3x7-lower-left-fill active=%zu/%zu session=%llu clock=%s frame=%u revision=%llu panel=%s frameBackend=%s skillIcons=%s skillNames=%s bank=%u tableRevision=%llu offsets(link=0x%X class=0x%X icon=0x%X nameId=0x%X) candidates=%u/%u/%u polls=%llu layoutRefresh=%llu timerWrites=%llu timerFailures=%llu tooltipWrites=%llu tooltipWriteFailures=%llu tooltipQualFailures=%llu tooltipNameFailures=%llu tooltipStorage=%s iconResolveFailures=%llu frameFallbacks=%llu expired=%llu widgetFailures=%llu widgetEnableFailures=%llu panelOpenFailures=%llu.",
+        "Buff Panel 1.0.10 BuffHud: layout=3x7-lower-left-fill active=%zu/%zu session=%llu clock=%s frame=%u revision=%llu panel=%s frameBackend=%s skillIcons=%s skillNames=%s bank=%u tableRevision=%llu offsets(link=0x%X class=0x%X icon=0x%X nameId=0x%X) candidates=%u/%u/%u polls=%llu layoutRefresh=%llu timerWrites=%llu timerFailures=%llu tooltipWrites=%llu tooltipWriteFailures=%llu tooltipQualFailures=%llu tooltipNameFailures=%llu tooltipStorage=%s iconResolveFailures=%llu frameFallbacks=%llu expired=%llu widgetFailures=%llu widgetEnableFailures=%llu panelOpenFailures=%llu.",
         snapshot.count,
         SlotCount,
         static_cast<unsigned long long>(snapshot.sessionGeneration),
@@ -1282,6 +1351,14 @@ void PrintStatus(const D2RL::PluginContext* context) noexcept {
     context->WriteConsoleMessage(line);
     context->WriteConsoleMessage(
         "Buff Panel: layout resolved by D2RLoader from d2rl-buff-panel.mpq (active-mod overrides take priority; restart D2R to reload).");
+    char inputStatus[256]{};
+    std::snprintf(inputStatus, sizeof(inputStatus),
+        "Buff Panel mouse policy=%s applied=%s applications=%llu failures=%llu (SDK enabled-state policy; test casting in game).",
+        MousePolicyName(CurrentMousePolicy.load(std::memory_order_acquire)),
+        MousePolicyLastApplied.load(std::memory_order_acquire) ? "yes" : "no",
+        static_cast<unsigned long long>(MousePolicyApplications.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(MousePolicyFailures.load(std::memory_order_relaxed)));
+    context->WriteConsoleMessage(inputStatus);
     QueueGridRectReadback(context);
 
     const auto visible = std::min<std::size_t>(snapshot.count, SlotCount);
@@ -1343,6 +1420,23 @@ void StartDebugTest(std::uint32_t seconds, std::uint32_t count) noexcept {
     }
 }
 
+void __cdecl ApplyMousePolicyOnUiThread(
+    const D2RL::PluginContext* context, void*) noexcept {
+    if (context == nullptr || context != Context) return;
+    if (!ResolveWidgetHandles()) {
+        context->WriteConsoleWarning(
+            "Buff Panel mouse policy: widget handles unavailable; enter a game, then retry.");
+        return;
+    }
+    const bool applied = ApplyMousePolicy();
+    char line[240]{};
+    std::snprintf(line, sizeof(line),
+        "Buff Panel mouse policy=%s: enabled-state changes %s. Verify skills over empty and occupied HUD slots; hover tooltips may be unavailable.",
+        MousePolicyName(CurrentMousePolicy.load(std::memory_order_acquire)),
+        applied ? "applied" : "FAILED");
+    context->WriteConsoleMessage(line);
+}
+
 D2RL::ConsoleCommandResult __cdecl BuffCommand(
     D2R::Game::Client*,
     const D2RL::ConsoleCommandContext* command,
@@ -1355,6 +1449,35 @@ D2RL::ConsoleCommandResult __cdecl BuffCommand(
     std::string_view action{};
     if (!NextToken(args, action) || action == "status") {
         PrintStatus(command->plugin);
+        return D2RL::ConsoleCommandResult::Handled;
+    }
+
+    if (action == "mouse") {
+        std::string_view mode{};
+        if (!NextToken(args, mode) || mode == "status") {
+            char line[180]{};
+            std::snprintf(line, sizeof(line),
+                "Buff Panel mouse policy=%s (gameplay | no-tooltips | original).",
+                MousePolicyName(CurrentMousePolicy.load(std::memory_order_acquire)));
+            command->plugin->WriteConsoleMessage(line);
+            return D2RL::ConsoleCommandResult::Handled;
+        }
+        MousePolicy selected{};
+        if (mode == "gameplay") selected = MousePolicy::Gameplay;
+        else if (mode == "no-tooltips") selected = MousePolicy::NoTooltips;
+        else if (mode == "original") selected = MousePolicy::Original;
+        else return D2RL::ConsoleCommandResult::InvalidArguments;
+        if (Threads == nullptr || Context == nullptr) return D2RL::ConsoleCommandResult::Failed;
+        const auto previous = CurrentMousePolicy.exchange(selected, std::memory_order_acq_rel);
+        MousePolicyLastApplied.store(false, std::memory_order_release);
+        if (Threads->runOnUiThread(Context, &ApplyMousePolicyOnUiThread, nullptr)
+            != D2RL::Threads::Result::Success) {
+            CurrentMousePolicy.store(previous, std::memory_order_release);
+            command->plugin->WriteConsoleError("Buff Panel mouse policy: UI callback could not be queued.");
+            return D2RL::ConsoleCommandResult::Failed;
+        }
+        command->plugin->WriteConsoleMessage(
+            "Buff Panel mouse policy change queued for the UI thread.");
         return D2RL::ConsoleCommandResult::Handled;
     }
 
@@ -1402,7 +1525,7 @@ D2RL::ConsoleCommandResult __cdecl BuffCommand(
     }
 
     command->plugin->WriteConsoleMessage(
-        "Usage: buff-panel [status | test [seconds] [count] | clear | rebuild-icons]");
+        "Usage: buff-panel [status | mouse [status|gameplay|no-tooltips|original] | test [seconds] [count] | clear | rebuild-icons]");
     return D2RL::ConsoleCommandResult::InvalidArguments;
 }
 
@@ -1490,6 +1613,9 @@ void ResetDiagnostics() noexcept {
     PanelOpenFailures.store(0, std::memory_order_relaxed);
     WidgetResolveFailures.store(0, std::memory_order_relaxed);
     WidgetEnableFailures.store(0, std::memory_order_relaxed);
+    MousePolicyApplications.store(0, std::memory_order_relaxed);
+    MousePolicyFailures.store(0, std::memory_order_relaxed);
+    MousePolicyLastApplied.store(false, std::memory_order_relaxed);
     TooltipNameResolveFailures.store(0, std::memory_order_relaxed);
     TooltipQualificationFailures.store(0, std::memory_order_relaxed);
     TooltipWrites.store(0, std::memory_order_relaxed);
@@ -1502,6 +1628,7 @@ bool Initialize(const D2RL::PluginContext* context) noexcept {
     Shutdown();
     if (context == nullptr) return false;
     Context = context;
+    CurrentMousePolicy.store(MousePolicy::Original, std::memory_order_release);
 
     const auto& services = Core::Services();
     Panels = services.panels;
@@ -1561,7 +1688,7 @@ bool Initialize(const D2RL::PluginContext* context) noexcept {
 
     ResetDiagnostics();
     Context->LogInfo(
-        "Buff Panel 1.0.9 BuffHud initialized: production 3x7 lower-left-fill panel, 21 reusable slots, display-only click-through buff icons with slot-local FocusableWidget hover tooltips, timer/resource presentation with single-value resource counters, runtime Skills->SkillDesc icon + localized str-name cache resolver using the first WORD-aligned post-icon name field with Missing-string rejection, nine native skill atlases (including Warlock), stable priority ordering, session reset, and live ButtonWidget frame application through the build-93847 path visually qualified by Skill Icon HUD Probe 0.7.0.");
+        "Buff Panel 1.0.10 BuffHud initialized: production 3x7 lower-left-fill panel, 21 reusable slots, display-only buff icons with reversible UI input-isolation modes; original mode preserves native hover; optional gameplay mode disables HUD focus surfaces, timer/resource presentation with single-value resource counters, runtime Skills->SkillDesc icon + localized str-name cache resolver using the first WORD-aligned post-icon name field with Missing-string rejection, nine native skill atlases (including Warlock), stable priority ordering, session reset, and live ButtonWidget frame application through the build-93847 path visually qualified by Skill Icon HUD Probe 0.7.0.");
     return true;
 }
 

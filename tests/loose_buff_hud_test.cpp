@@ -56,6 +56,18 @@ int main() {
     assert(result.path == path);
     assert(result.bytes.back() == '\n');
 
+
+    const std::string timerSkillFallback =
+        "name\tstate_id\tdisplay_type\tvalue_stat\tmax_stat\tskill_id\tvalue_shift\tenabled\n"
+        "shout\t26\ttimer\t0\t0\t138\t0\t1\n"
+        "battle_orders\t32\ttimer\t0\t0\t149\t0\t1\n"
+        "battle_command\t51\ttimer\t0\t0\t155\t0\t1\n";
+    Write(path, timerSkillFallback);
+    result = B::Select(root.c_str(), "test-mod", Default);
+    assert(result.source == B::Source::ActiveMod);
+    assert(result.bytes.find("shout\t26\ttimer\t0\t0\t138") != std::string::npos);
+    assert(result.bytes.find("battle_orders\t32\ttimer\t0\t0\t149") != std::string::npos);
+
     Write(path, "wrong\theader\n");
     result = B::Select(root.c_str(), "test-mod", Default);
     assert(result.source == B::Source::InvalidOverride);
@@ -86,6 +98,6 @@ int main() {
     assert(result.source == B::Source::Embedded);
 
     fs::remove_all(base);
-    std::cout << "PASS: embedded fallback, active-mod override, CRLF normalization, invalid header, "
+    std::cout << "PASS: embedded fallback, active-mod override, timer skill fallback, CRLF normalization, invalid header, "
                  "missing LF, duplicate enabled state, direct mod root, BOM rejection, unsafe mod name\n";
 }

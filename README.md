@@ -104,6 +104,10 @@ Install the rebuilt MPQ next to the matching DLL and restart D2R. Any pre-existi
 
 ```text
 buff-panel status
+buff-panel mouse status
+buff-panel mouse gameplay
+buff-panel mouse no-tooltips
+buff-panel mouse original
 buff-panel test 15 3
 buff-panel clear
 buff-panel rebuild-icons
@@ -112,6 +116,8 @@ buff-panel-status
 ```
 
 Test while a configured buff is **currently active**. `buff-panel-tracker` reports whether the whitelist loaded, whether a timed state was discovered, and whether its live expiry was published; `buff-panel status` reports currently displayed entries and the HUD frame clock.
+
+Version 1.0.10 incorporates [upstream 0996a88](https://github.com/Lukaszpg/d2rl-buff-hud/commit/0996a88ace26c14e6cb01aed5fe287bc230b24ea). Its mouse modes help diagnose interference between the HUD and gameplay clicks. This fork defaults to `original`, preserving native hover tooltips. `gameplay` disables the panel, grid, slots, and tooltip hit targets; `no-tooltips` disables only tooltip targets. Icons remain disabled as buttons in every mode. These modes change enabled states, not tooltip text or buff tracking. Use `original` to restore hover. The setting lasts for the current plugin session; actual click-through behavior still requires in-game verification.
 
 ## Known limitations / verification
 

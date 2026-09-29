@@ -13,8 +13,8 @@ inline constexpr std::size_t TooltipReserveBytes = TooltipReserveLength + 1;
     return std::memcmp(buffer, reserve, TooltipReserveBytes) == 0;
 }
 
-inline bool StoreTooltipText(void* buffer, std::string_view text) noexcept {
-    if (text.size() > TooltipReserveLength) return false;
+[[nodiscard]] inline bool StoreTooltipText(void* buffer, std::string_view text) noexcept {
+    if (buffer == nullptr || text.size() > TooltipReserveLength) return false;
     std::memset(buffer, 0, TooltipReserveBytes);
     if (!text.empty()) std::memcpy(buffer, text.data(), text.size());
     return true;

@@ -1,6 +1,12 @@
 # Buff Panel changelog
 
-## 1.0.9 � Call to Arms timers and tooltips (2026-09-29)
+## 1.0.10 — upstream integration (2026-09-29)
+- Merge upstream 0996a88; retain PluginSDK 0.3.0, companion MPQ packaging, Reimagined mappings, and existing panel position.
+- Remove unused skill-level reads while preserving native timer range checks and Call to Arms fallback identity.
+- Add upstream mouse modes and diagnostics; preserve native hover as this fork's default.
+- Import tooltip null handling and portable buffer tests; verify mouse modes restore parent and child enabled states.
+
+## 1.0.9 — Call to Arms timers and tooltips (2026-09-29)
 - Support timer skill-ID fallbacks for native states missing caster metadata, including custom buffs.
 - Map Battle Orders, Battle Command and Shout; preserve actual native expiration and recast tracking.
 - Fix tooltip qualification and writes exceeding the native string allocation by one byte.

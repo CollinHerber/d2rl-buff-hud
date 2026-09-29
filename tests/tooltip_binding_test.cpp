@@ -11,6 +11,49 @@ namespace H = BuffPanel::Systems::BuffHud;
 namespace {
 alignas(8) std::array<std::byte, 0x1000> Widget{};
 constexpr std::size_t TextField = 0x88; // Observed FocusableWidget field on 93847.
+std::array<bool, 256> Enabled{};
+
+D2RL::Widgets::Result __cdecl SetEnabled(const D2RL::PluginContext*,
+    D2RL::Widgets::WidgetHandle handle, bool enabled) noexcept {
+    assert(handle > 0 && handle < Enabled.size());
+    Enabled[handle] = enabled;
+    return D2RL::Widgets::Result::Success;
+}
+
+void TestMousePolicy() {
+    D2RL::PluginContext context{};
+    D2RL::WidgetService widgets{};
+    widgets.setWidgetEnabled = &SetEnabled;
+    H::Context = &context;
+    H::Widgets = &widgets;
+    H::HandlesResolved = true;
+    H::HudPanel = 1;
+    H::GridWidget = 2;
+    std::uint64_t next = 3;
+    for (auto& slot : H::Handles) {
+        slot.slot = next++;
+        slot.tooltip = next++;
+        for (auto& icon : slot.icons) icon = next++;
+    }
+    // Preserve hover by default; switching modes must be reversible.
+    assert(H::CurrentMousePolicy.load() == H::MousePolicy::Original);
+    for (auto mode : {H::MousePolicy::Original, H::MousePolicy::Gameplay,
+            H::MousePolicy::NoTooltips, H::MousePolicy::Original}) {
+        H::CurrentMousePolicy.store(mode);
+        assert(H::ApplyMousePolicy());
+        assert(H::MousePolicyLastApplied.load());
+        const bool parents = mode != H::MousePolicy::Gameplay;
+        assert(Enabled[H::HudPanel] == parents && Enabled[H::GridWidget] == parents);
+        for (const auto& slot : H::Handles) {
+            assert(Enabled[slot.slot] == parents);
+            assert(Enabled[slot.tooltip] == (mode == H::MousePolicy::Original));
+            for (const auto icon : slot.icons) assert(!Enabled[icon]);
+        }
+    }
+    H::Context = nullptr;
+    H::Widgets = nullptr;
+    H::HandlesResolved = false;
+}
 
 void* __fastcall FindPanel(const char*) noexcept { return Widget.data(); }
 void* __fastcall FindChild(void*, const char*) noexcept { return Widget.data(); }
@@ -33,6 +76,7 @@ void Bind(void* buffer, std::uint64_t length) {
 }
 
 int main() {
+    TestMousePolicy();
     H::FindTopLevelPanel = &FindPanel;
     H::FindChildWidgetByName = &FindChild;
     SYSTEM_INFO info{};

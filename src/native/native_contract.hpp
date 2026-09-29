@@ -130,7 +130,6 @@ inline constexpr std::size_t StatListBuffMetadataBytes = 0x30;
 
 inline constexpr std::size_t StatListBuffSkillIdOffset = 0x28;
 
-inline constexpr std::size_t StatListBuffSkillLevelOffset = 0x2C;
 
 inline constexpr std::size_t StatListBuffStateOffset = 0x20;
 } // namespace BuffPanel::Native::Contract

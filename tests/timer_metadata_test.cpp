@@ -10,23 +10,24 @@ using namespace BuffPanel::Systems::BuffTracker::Internal;
 
 int main() {
     std::uint32_t skill{}, expiry{};
-    // Actual Call to Arms lists read from build 93847: state and expiry exist,
-    // but the native skill and level fields are both zero.
-    const TimerMetadata orders{2, 32, 15792.0f, 0, 0};
-    const TimerMetadata command{2, 51, 15485.0f, 0, 0};
+    // Actual Call to Arms lists observed on build 93847: state and expiry exist,
+    // while native skill attribution is zero. skillLevel is intentionally not
+    // part of TimerMetadata or ResolveTimer.
+    const TimerMetadata orders{2, 32, 15792.0f, 0};
+    const TimerMetadata command{2, 51, 15485.0f, 0};
     assert(ResolveTimer(orders, 32, 149, 10743, skill, expiry));
     assert(skill == 149 && expiry == 15792);
     assert(ResolveTimer(command, 51, 155, 10743, skill, expiry));
     assert(skill == 155 && expiry == 15485);
     assert(!ResolveTimer(orders, 32, 0, 10743, skill, expiry));
     assert(!ResolveTimer(orders, 51, 155, 10743, skill, expiry));
-    // Custom states/skills follow exactly the same path, without stock ID limits.
-    TimerMetadata custom{2, 350, 16000.0f, 0, 0};
+
+    // Custom states/skills follow the same path, with native attribution winning.
+    TimerMetadata custom{2, 350, 16000.0f, 0};
     assert(ResolveTimer(custom, 350, 510, 10743, skill, expiry) && skill == 510);
     custom.skill = 511;
     assert(ResolveTimer(custom, 350, 510, 10743, skill, expiry) && skill == 511);
-    custom.skillLevel = 4;
-    assert(ResolveTimer(custom, 350, 0, 10743, skill, expiry));
+    assert(ResolveTimer(custom, 350, 0, 10743, skill, expiry) && skill == 511);
     custom.flags |= 0x20;
     assert(!ResolveTimer(custom, 350, 510, 10743, skill, expiry));
     custom.flags = 2;
@@ -37,12 +38,13 @@ int main() {
         assert(!ResolveTimer(custom, 350, 510, 10743, skill, expiry));
         assert(expiry == 0);
     }
-    // Expiry is the native deadline, so advancing the clock consumes the timer;
-    // a native recast deadline renews it rather than restarting every poll.
+
+    // Expiry is the native deadline: advancing the clock consumes the timer,
+    // while a later native recast deadline renews it.
     assert(ResolveTimer(orders, 32, 149, 15791, skill, expiry) && expiry == 15792);
     assert(!ResolveTimer(orders, 32, 149, 15792, skill, expiry));
     auto renewed = orders;
     renewed.expireFrameFloat = 18000;
     assert(ResolveTimer(renewed, 32, 149, 15792, skill, expiry) && expiry == 18000);
-    std::cout << "PASS: Call to Arms metadata, custom skill fallback, native attribution, expiry and rejection guards\n";
+    std::cout << "PASS: CTA fallback, native attribution, expiry and rejection guards; no skillLevel dependency\n";
 }

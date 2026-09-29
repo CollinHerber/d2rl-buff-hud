@@ -97,7 +97,7 @@ int main() {
     Registry.context = &Context; Registry.dataTables = &Tables; Registry.localization = &Localization;
     Fixture(false); CheckIcons();
     Fixture(true); CheckIcons();
-    // Truly ambiguous layouts must still fail closed, never choose the first.
+    // Truly ambiguous layouts must fail closed, never choose the first.
     for (auto& row : Skills) std::memcpy(row.data() + 0x240, row.data() + 0x23c, 2);
     assert(!H::RebuildSkillIconCache(43));
     assert(H::SkillIconStatus().linkCandidateCount == 2);

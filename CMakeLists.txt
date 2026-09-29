@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.29)
-project(BuffPanel VERSION 1.0.9 LANGUAGES CXX RC)
+project(BuffPanel VERSION 1.0.10 LANGUAGES CXX RC)
 
 if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "Buff Panel requires Windows x64 and an MSVC-compatible toolchain.")
