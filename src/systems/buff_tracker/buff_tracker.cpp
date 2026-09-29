@@ -1,12 +1,11 @@
 #include "buff_tracker.hpp"
+#include "timer_metadata.hpp"
 
 #include "core/buff_display_bus.hpp"
 #include "core/services.hpp"
 #include "core/stat_read_bus.hpp"
 #include "core/stat_list_post_bus.hpp"
 #include "native/native_contract.hpp"
-
-#include "loose_buff_hud.hpp"
 
 #include <Windows.h>
 
@@ -24,129 +23,6 @@
 #include <string_view>
 #include <vector>
 
-// Compile-time defaults are kept here, not in generated headers or
-// authoring TXT/JSON. Charsi may strip non-C++ asset files.
-namespace BuffPanel::Systems::BuffTracker::DefaultTables {
-constexpr char BuffHud[] = R"BUFFPANELHUD(name	state_id	display_type	value_stat	max_stat	skill_id	value_shift	enabled
-resist_fire_aura	3	timer	0	0	0	0	0
-resist_cold_aura	4	timer	0	0	0	0	0
-resist_lightning_aura	5	timer	0	0	0	0	0
-salvation_aura	8	timer	0	0	0	0	0
-frozen_armor	10	timer	0	0	0	0	1
-blaze	13	timer	0	0	0	0	1
-bone_armor	14	resource	132	133	68	8	1
-concentrate_attack_state	15	timer	0	0	0	0	0
-enchant	16	timer	0	0	0	0	1
-chilling_armor	20	timer	0	0	0	0	1
-shout	26	timer	0	0	0	0	1
-conviction_aura	28	timer	0	0	0	0	0
-energy_shield	30	timer	0	0	0	0	1
-venom	31	timer	0	0	0	0	1
-battle_orders	32	timer	0	0	0	0	1
-might_aura	33	timer	0	0	0	0	0
-prayer_aura	34	timer	0	0	0	0	0
-holy_fire_aura	35	timer	0	0	0	0	0
-thorns_aura	36	timer	0	0	0	0	0
-defiance_aura	37	timer	0	0	0	0	0
-thunder_storm	38	timer	0	0	0	0	1
-blessed_aim_aura	40	timer	0	0	0	0	0
-vigor_aura	41	timer	0	0	0	0	0
-concentration_aura	42	timer	0	0	0	0	0
-holy_freeze_caster_aura	43	timer	0	0	0	0	0
-cleansing_aura	45	timer	0	0	0	0	0
-holy_shock_aura	46	timer	0	0	0	0	0
-sanctuary_aura	47	timer	0	0	0	0	0
-meditation_aura	48	timer	0	0	0	0	0
-fanaticism_aura	49	timer	0	0	0	0	0
-redemption_aura	50	timer	0	0	0	0	0
-battle_command	51	timer	0	0	0	0	1
-critical_strike_passive	64	timer	0	0	0	0	0
-dodge_passive	65	timer	0	0	0	0	0
-avoid_passive	66	timer	0	0	0	0	0
-penetrate_passive	67	timer	0	0	0	0	0
-evade_passive	68	timer	0	0	0	0	0
-pierce_passive	69	timer	0	0	0	0	0
-warmth_passive	70	timer	0	0	0	0	0
-fire_mastery_passive	71	timer	0	0	0	0	0
-lightning_mastery_passive	72	timer	0	0	0	0	0
-cold_mastery_passive	73	timer	0	0	0	0	0
-blade_mastery_passive	74	timer	0	0	0	0	0
-axe_mastery_passive	75	timer	0	0	0	0	0
-mace_mastery_passive	76	timer	0	0	0	0	0
-polearm_mastery_passive	77	timer	0	0	0	0	0
-throwing_mastery_passive	78	timer	0	0	0	0	0
-spear_mastery_passive	79	timer	0	0	0	0	0
-increased_stamina_passive	80	timer	0	0	0	0	0
-iron_skin_passive	81	timer	0	0	0	0	0
-increased_speed_passive	82	timer	0	0	0	0	0
-natural_resistance_passive	83	timer	0	0	0	0	0
-shiver_armor	88	timer	0	0	0	0	1
-frenzy	94	timer	0	0	0	0	1
-berserk_attack_state	95	timer	0	0	0	0	0
-skeleton_mastery_passive	97	timer	0	0	0	0	0
-holy_shield	101	timer	0	0	0	0	1
-golem_mastery_passive	111	timer	0	0	0	0	0
-maul	117	timer	0	0	0	0	1
-feral_rage	120	timer	0	0	0	0	1
-tiger_strike_charges	122	timer	0	0	0	0	1
-cobra_strike_charges	123	timer	0	0	0	0	1
-phoenix_strike_charges	124	timer	0	0	0	0	1
-fists_of_fire_charges	125	timer	0	0	0	0	1
-blades_of_ice_charges	126	timer	0	0	0	0	1
-claws_of_thunder_charges	127	timer	0	0	0	0	1
-armor_shrine	128	timer	0	0	0	0	1
-combat_shrine	129	timer	0	0	0	0	1
-lightning_resist_shrine	130	timer	0	0	0	0	1
-fire_resist_shrine	131	timer	0	0	0	0	1
-cold_resist_shrine	132	timer	0	0	0	0	1
-poison_resist_shrine	133	timer	0	0	0	0	1
-skill_shrine	134	timer	0	0	0	0	1
-mana_regen_shrine	135	timer	0	0	0	0	1
-stamina_shrine	136	timer	0	0	0	0	1
-experience_shrine	137	timer	0	0	0	0	1
-werewolf	139	timer	0	0	0	0	1
-werebear	140	timer	0	0	0	0	1
-bloodlust	141	timer	0	0	0	0	0
-hurricane	144	timer	0	0	0	0	1
-armageddon	145	timer	0	0	0	0	1
-spirit_of_barbs_aura	147	timer	0	0	0	0	0
-heart_of_wolverine_aura	148	timer	0	0	0	0	0
-oak_sage_aura	149	timer	0	0	0	0	0
-cyclone_armor	151	resource	132	133	235	8	1
-claw_mastery_passive	152	timer	0	0	0	0	0
-cloak_of_shadows_caster	153	timer	0	0	0	0	1
-weapon_block_passive	155	timer	0	0	0	0	0
-burst_of_speed	157	timer	0	0	0	0	1
-blade_shield	158	timer	0	0	0	0	1
-fade	159	timer	0	0	0	0	1
-summon_resist_passive	160	timer	0	0	0	0	0
-whirlwind_action_state	174	timer	0	0	0	0	0
-delirium	177	timer	0	0	0	0	1
-antidote_potion	178	timer	0	0	0	0	1
-thawing_potion	179	timer	0	0	0	0	1
-stamina_potion	180	timer	0	0	0	0	1
-resist_fire_passive	181	timer	0	0	0	0	0
-resist_cold_passive	182	timer	0	0	0	0	0
-resist_lightning_passive	183	timer	0	0	0	0	0
-mark_of_the_bear	190	timer	0	0	0	0	1
-mark_of_the_wolf	191	timer	0	0	0	0	1
-blood_oath_passive	195	timer	0	0	0	0	0
-demonic_mastery_passive	196	timer	0	0	0	0	0
-levitate_mastery_passive	197	timer	0	0	0	0	0
-hex_bane_caster	198	timer	0	0	0	0	1
-hex_siphon_caster	200	timer	0	0	0	0	1
-hex_purge_caster	202	timer	0	0	0	0	1
-mind_barrier	203	timer	0	0	0	0	0
-enhanced_entropy_passive	204	timer	0	0	0	0	0
-sigil_caster	205	timer	0	0	0	0	0
-psychic_ward	206	resource	361	362	387	8	1
-bind_demon_caster	207	timer	0	0	0	0	0
-consume	208	timer	0	0	0	0	1
-engorge	211	timer	0	0	0	0	1
-lightning_enchant	222	timer	0	0	0	0	0
-cold_enchant	223	timer	0	0	0	0	0
-)BUFFPANELHUD";
-} // namespace BuffPanel::Systems::BuffTracker::DefaultTables
 
 namespace BuffPanel::Systems::BuffTracker {
 namespace {
@@ -165,18 +41,14 @@ constexpr std::uint32_t PlayerUnitType = 0;
 constexpr std::uint32_t StatListCurseFlag = 0x00000020u;
 constexpr std::uint32_t SharedStashProxyState = 186u; // states.txt: sharedstash; D2RLoader 1.3 proxy marker
 constexpr std::uint32_t FramesPerSecond = 25;
-constexpr std::uint32_t MaximumPlausibleDurationFrames = FramesPerSecond * 60u * 60u * 24u * 7u;
 
 const D2RL::PluginContext* Context{};
-const D2RL::ResourceService* Resources{};
 const D2RL::CustomTableService* CustomTables{};
 const D2RL::ThreadService* Threads{};
 const D2RL::LifecycleService* Lifecycle{};
 GetGameFromUnitFn GetGameFromUnit{};
 GetStatListFromUnitAndStateFn GetStatListFromUnitAndState{};
 D2RL::CustomTables::TableHandle BuffHudTable{D2RL::CustomTables::InvalidHandle};
-LooseBuffHud::Source TableSource{LooseBuffHud::Source::Embedded};
-std::string TableSourcePath{};
 D2RL::Lifecycle::ListenerHandle DataTablesListener{D2RL::Lifecycle::InvalidHandle};
 std::array<D2RL::Lifecycle::ListenerHandle, 3> GameplayListeners{};
 
@@ -446,8 +318,9 @@ template <typename T>
         definition.stateId = row.stateId;
         const std::string_view displayType{row.displayType, strnlen(row.displayType, sizeof(row.displayType))};
         if (displayType == "timer") {
-            if (row.valueStat != 0 || row.maxStat != 0 || row.skillId != 0 || row.valueShift != 0) return {};
+            if (row.valueStat != 0 || row.maxStat != 0 || row.skillId > 4095 || row.valueShift != 0) return {};
             definition.displayMode = Core::BuffDisplayMode::Timer;
+            definition.sourceSkillId = static_cast<std::int32_t>(row.skillId);
         } else if (displayType == "resource") {
             if (row.valueStat == 0 || row.maxStat == 0 || row.skillId == 0
                 || row.valueStat > 4095 || row.maxStat > 4095 || row.skillId > 4095
@@ -574,13 +447,7 @@ void RecordTimerPresence(
 // read the *currently attached* state every frame, not only its presence.
 // These five consecutive fields were qualified on build 93847. Copying them
 // together requires one readable-range probe per live state, rather than five.
-struct NativeTimerMetadata final {
-    std::uint32_t flags{};
-    std::uint32_t state{};
-    float expireFrameFloat{};
-    std::uint32_t skill{};
-    std::uint32_t skillLevel{};
-};
+using NativeTimerMetadata = Internal::TimerMetadata;
 static_assert(sizeof(NativeTimerMetadata) == Native::Contract::StatListBuffMetadataBytes
     - Native::Contract::StatListBuffFlagsOffset);
 
@@ -590,26 +457,10 @@ static_assert(sizeof(NativeTimerMetadata) == Native::Contract::StatListBuffMetad
     std::uint32_t currentFrame,
     std::uint32_t& liveExpiry) noexcept {
     NativeTimerMetadata metadata{};
-    if (!ReadField(statList, Native::Contract::StatListBuffFlagsOffset, metadata)
-        || metadata.state != record.stateId
-        || metadata.skill != record.skillId
-        || metadata.skillLevel == 0
-        || (metadata.flags & StatListCurseFlag) != 0
-        || !std::isfinite(metadata.expireFrameFloat)) {
-        return false;
-    }
-    const auto rounded = std::floor(metadata.expireFrameFloat + 0.5f);
-    if (rounded <= 0.0f || rounded >= 4294967296.0f
-        || std::fabs(metadata.expireFrameFloat - rounded) > 0.01f) {
-        return false;
-    }
-    const auto expiry = static_cast<std::uint32_t>(rounded);
-    if (!IsFrameInFuture(expiry, currentFrame)
-        || expiry - currentFrame > MaximumPlausibleDurationFrames) {
-        return false;
-    }
-    liveExpiry = expiry;
-    return true;
+    std::uint32_t skill{};
+    return ReadField(statList, Native::Contract::StatListBuffFlagsOffset, metadata)
+        && Internal::ResolveTimer(metadata, record.stateId, record.skillId, currentFrame, skill, liveExpiry)
+        && skill == record.skillId;
 }
 
 // Retain the established expiry/presence lifecycle. The renewal path is
@@ -774,31 +625,18 @@ void RefreshResourceBuffs() noexcept {
             }
         }
 
-        // Multiple enabled resource states can share one unit-stat pool:
-        // Bone Armor and Cyclone Armor both use bonearmor/bonearmormax.
-        // Resolve the *actual* attached native state in that case so a single
-        // pool never creates two different skill icons. Keep the original
-        // stat-only fallback for an unambiguous resource definition.
-        bool sharesResourcePair = false;
-        for (const auto& other : cache->definitions) {
-            if (other.displayMode == Core::BuffDisplayMode::Resource
-                && other.stateId != definition.stateId
-                && other.valueStatId == definition.valueStatId
-                && other.maxStatId == definition.maxStatId) {
-                sharesResourcePair = true;
-                break;
+        // A positive stat pool alone does not prove that its buff is active.
+        // Mods can reuse stat IDs (Reimagined uses stock Psychic Ward IDs for
+        // corruption flags), and a depleted buff can leave its maximum behind.
+        // Require the attached native state for EVERY resource definition.
+        const bool isAttached = GetStatListFromUnitAndState != nullptr
+            && GetStatListFromUnitAndState(
+                player, static_cast<std::int32_t>(definition.stateId)) != nullptr;
+        if (!isAttached) {
+            if (existing != nullptr && Core::BuffDisplays().Remove(key)) {
+                ResourceRemovals.fetch_add(1, std::memory_order_relaxed);
             }
-        }
-        if (sharesResourcePair) {
-            const bool isAttached = GetStatListFromUnitAndState != nullptr
-                && GetStatListFromUnitAndState(
-                    player, static_cast<std::int32_t>(definition.stateId)) != nullptr;
-            if (!isAttached) {
-                if (existing != nullptr && Core::BuffDisplays().Remove(key)) {
-                    ResourceRemovals.fetch_add(1, std::memory_order_relaxed);
-                }
-                continue;
-            }
+            continue;
         }
 
         const auto rawCurrent = getter(player, definition.valueStatId, 0);
@@ -880,26 +718,21 @@ void DiscoverAttachedTimers(std::uint32_t currentFrame) noexcept {
         TimerDiscoveryStateHits.fetch_add(1, std::memory_order_relaxed);
 
         NativeTimerMetadata metadata{};
+        std::uint32_t skill{}, expiry{};
         if (!ReadField(nativeState, Native::Contract::StatListBuffFlagsOffset, metadata)
-            || metadata.state != state || metadata.skill == 0 || metadata.skillLevel == 0
-            || (metadata.flags & StatListCurseFlag) != 0) {
+            || !Internal::ResolveTimer(metadata, state,
+                static_cast<std::uint32_t>(definition.sourceSkillId), currentFrame, skill, expiry)) {
             TimerDiscoveryInvalid.fetch_add(1, std::memory_order_relaxed);
             LastDiscoveryResult.store(2, std::memory_order_relaxed);
+            LastDiscoverySkill.store(skill, std::memory_order_relaxed);
             continue;
         }
         const TimerPresenceRecord witness{
-            .key = AutomaticBuffKey(state, metadata.skill),
+            .key = AutomaticBuffKey(state, skill),
             .stateId = state,
-            .skillId = metadata.skill,
+            .skillId = skill,
         };
-        std::uint32_t expiry{};
-        if (!ReadLiveTimerExpiry(nativeState, witness, currentFrame, expiry)) {
-            TimerDiscoveryInvalid.fetch_add(1, std::memory_order_relaxed);
-            LastDiscoveryResult.store(2, std::memory_order_relaxed);
-            LastDiscoverySkill.store(metadata.skill, std::memory_order_relaxed);
-            continue;
-        }
-        LastDiscoverySkill.store(metadata.skill, std::memory_order_relaxed);
+        LastDiscoverySkill.store(skill, std::memory_order_relaxed);
         LastDiscoveryExpiry.store(expiry, std::memory_order_relaxed);
         bool alreadyPublished = false;
         for (std::size_t i = 0; i < snapshot.count; ++i) {
@@ -915,7 +748,7 @@ void DiscoverAttachedTimers(std::uint32_t currentFrame) noexcept {
         }
         Core::BuffDisplayEntry entry{};
         entry.key = witness.key;
-        entry.sourceSkillId = static_cast<std::int32_t>(metadata.skill);
+        entry.sourceSkillId = static_cast<std::int32_t>(skill);
         entry.displayMode = Core::BuffDisplayMode::Timer;
         entry.expireGameFrame = expiry;
         entry.stacks = 1;
@@ -925,7 +758,7 @@ void DiscoverAttachedTimers(std::uint32_t currentFrame) noexcept {
             LastDiscoveryResult.store(5, std::memory_order_relaxed);
             continue;
         }
-        RecordTimerPresence(witness.key, state, metadata.skill, expiry, currentFrame);
+        RecordTimerPresence(witness.key, state, skill, expiry, currentFrame);
         TimerDiscoveryPublishes.fetch_add(1, std::memory_order_relaxed);
         BuffPostsAccepted.fetch_add(1, std::memory_order_relaxed);
         LastDiscoveryResult.store(4, std::memory_order_relaxed);
@@ -1064,31 +897,15 @@ void OnStatListPost(
     if (session == 0) return;
 
     if (definition->displayMode == Core::BuffDisplayMode::Timer) {
-        if (state == 0 || skill == 0 || skillLevel == 0) {
-            if (phase == Core::StatListPostPhase::BeforeNative) {
-                RejectedInvalidMetadata.fetch_add(1, std::memory_order_relaxed);
-            }
-            return;
-        }
-        // Timer semantic fields were runtime-qualified before the native post.
         if (phase != Core::StatListPostPhase::BeforeNative) return;
-        if (!std::isfinite(expireFrameFloat)) {
+        const NativeTimerMetadata metadata{flags, state, expireFrameFloat, skill, skillLevel};
+        std::uint32_t expireFrame{};
+        if (!Internal::ResolveTimer(metadata, definition->stateId,
+                static_cast<std::uint32_t>(definition->sourceSkillId), currentFrame, skill, expireFrame)) {
             RejectedInvalidMetadata.fetch_add(1, std::memory_order_relaxed);
             return;
         }
-        const auto rounded = std::floor(expireFrameFloat + 0.5f);
-        if (rounded <= 0.0f || rounded > static_cast<float>(UINT32_MAX)
-            || std::fabs(expireFrameFloat - rounded) > 0.01f) {
-            RejectedInvalidMetadata.fetch_add(1, std::memory_order_relaxed);
-            return;
-        }
-        const auto expireFrame = static_cast<std::uint32_t>(rounded);
         LastExpireFrame.store(expireFrame, std::memory_order_relaxed);
-        const auto duration = expireFrame - currentFrame;
-        if (expireFrame <= currentFrame || duration > MaximumPlausibleDurationFrames) {
-            RejectedNoExpiry.fetch_add(1, std::memory_order_relaxed);
-            return;
-        }
 
         Core::BuffDisplayEntry entry{};
         entry.key = AutomaticBuffKey(state, skill);
@@ -1237,58 +1054,17 @@ D2RL::ConsoleCommandResult __cdecl TrackerCommand(
         static_cast<double>(static_cast<std::int64_t>(LastPrematureRemovedExpire.load(std::memory_order_relaxed))
             - static_cast<std::int64_t>(LastPrematureRemovedFrame.load(std::memory_order_relaxed))) / FramesPerSecond);
     command->plugin->WriteConsoleMessage(line);
-    std::snprintf(line, sizeof(line),
-        "BuffPanel buff-hud.txt source=%s (restart D2R after editing the loose TXT).",
-        TableSource == LooseBuffHud::Source::ActiveMod ? "active-mod" : "embedded");
-    command->plugin->WriteConsoleMessage(line);
-    if (TableSource == LooseBuffHud::Source::ActiveMod) {
-        command->plugin->WriteConsoleMessage(TableSourcePath.c_str());
-    }
     command->plugin->WriteConsoleMessage(
-        "Detection policy: timer rows are matched by whitelisted state on authoritative UNIT_PLAYER StatLists and require native skill/level plus finite future expiry. Subsequent game-thread polling extends an existing HUD timer only for a validated later attached-state expiry; failed metadata reads have no effect on the countdown. Early native state removal retires it. Resource rows poll configured current/max stats. STATLIST_BUFF is ignored; STATLIST_CURSE remains excluded.");
+        "BuffPanel buff-hud.txt: D2RLoader companion resource (active-mod overrides take priority; restart D2R after edits).");
+    command->plugin->WriteConsoleMessage(
+        "Detection policy: timer rows are matched by whitelisted state on authoritative UNIT_PLAYER StatLists and require finite future expiry and native or configured skill identity. Subsequent game-thread polling extends an existing HUD timer only for a validated later attached-state expiry; failed metadata reads have no effect on the countdown. Early native state removal retires it. Resource rows poll configured current/max stats. STATLIST_BUFF is ignored; STATLIST_CURSE remains excluded.");
     return D2RL::ConsoleCommandResult::Handled;
 }
 
 [[nodiscard]] bool RegisterTable() noexcept {
-    if (Context == nullptr || Resources == nullptr || CustomTables == nullptr) return false;
-    // Do not depend on opaque resource-overlay priority. Explicitly select the
-    // active mod's loose file BEFORE registering a single in-memory resource.
-    // D2RLoader copies the selected bytes during registerResource().
-    const auto selection = LooseBuffHud::Select(
-        Context->modDirectory, Context->activeMod,
-        std::string_view(DefaultTables::BuffHud, sizeof(DefaultTables::BuffHud) - 1));
-    if (selection.source == LooseBuffHud::Source::InvalidOverride) {
-        char line[512]{};
-        std::snprintf(line, sizeof(line),
-            "Buff Panel: external buff-hud.txt rejected: %s. Correct or delete it; no silent fallback.",
-            selection.error.c_str());
-        Context->LogError(line);
-        return false;
-    }
-    TableSource = selection.source;
-    TableSourcePath.clear();
-    if (TableSource == LooseBuffHud::Source::ActiveMod) {
-        try {
-            const auto utf8 = selection.path.u8string();
-            TableSourcePath.assign(utf8.begin(), utf8.end());
-        } catch (...) {
-            TableSourcePath = "<active mod file>";
-        }
-    }
-    const D2RL::Resources::ResourceRegistration resource{
-        .structSize = D2RL::Resources::ResourceRegistrationSize,
-        .flags = 0,
-        .path = "data/global/excel/d2rloader/buff-panel/buff-hud.txt",
-        .bytes = selection.bytes.data(),
-        .byteCount = selection.bytes.size(),
-    };
-    D2RL::Resources::RegistrationHandle resourceHandle{D2RL::Resources::InvalidHandle};
-    if (Resources->registerResource(Context, &resource, &resourceHandle)
-            != D2RL::Resources::Result::Success
-        || resourceHandle == D2RL::Resources::InvalidHandle) {
-        Context->LogError("Buff Panel: unable to register selected buff-hud.txt as a loader resource.");
-        return false;
-    }
+    if (Context == nullptr || CustomTables == nullptr) return false;
+    // The default TXT lives in d2rl-buff-panel.mpq. D2RLoader owns resource
+    // selection and custom-table compilation; no mod-side file is required.
     const D2RL::CustomTables::TableRegistration registration{
         .structSize = D2RL::CustomTables::TableRegistrationSize,
         .name = "buff-hud",
@@ -1304,17 +1080,8 @@ D2RL::ConsoleCommandResult __cdecl TrackerCommand(
         Context->LogError("Buff Panel: unable to register selected buff-hud.txt custom table.");
         return false;
     }
-    char line[768]{};
-    if (TableSource == LooseBuffHud::Source::ActiveMod) {
-        std::snprintf(line, sizeof(line),
-            "Buff Panel: buff-hud.txt source=active-mod file=%s; override loaded; restart D2R after edits.",
-            TableSourcePath.c_str());
-    } else {
-        std::snprintf(line, sizeof(line),
-            "Buff Panel: buff-hud.txt source=embedded (active mod has no loose override)."
-            " No loose file is required; restart D2R after adding one.");
-    }
-    Context->LogInfo(line);
+    Context->LogInfo(
+        "Buff Panel: registered buff-hud custom table from companion resources; active-mod overrides take priority.");
     return true;
 }
 
@@ -1416,14 +1183,13 @@ bool Initialize(const D2RL::PluginContext* context) noexcept {
     if (context == nullptr || context->exeBase == 0) return false;
     Context = context;
     const auto& services = Core::Services();
-    Resources = services.resources;
     CustomTables = services.customTables;
     Threads = services.threads;
     Lifecycle = services.lifecycle;
-    if (Resources == nullptr || CustomTables == nullptr || Threads == nullptr || Lifecycle == nullptr
+    if (CustomTables == nullptr || Threads == nullptr || Lifecycle == nullptr
         || !D2RL::HasThreadServiceField(Threads, D2RL::ThreadServiceRequiredSize)
         || !D2RL::HasLifecycleServiceField(Lifecycle, D2RL::LifecycleServiceRequiredSize)) {
-        Context->LogError("BuffPanel BuffTracker: required Resource/CustomTable/Thread/Lifecycle service unavailable.");
+        Context->LogError("BuffPanel BuffTracker: required CustomTable/Thread/Lifecycle service unavailable.");
         Shutdown();
         return false;
     }
@@ -1486,7 +1252,7 @@ bool Initialize(const D2RL::PluginContext* context) noexcept {
 
     ResetDiagnostics();
     Context->LogInfo(
-        "Buff Panel 1.0.6 BuffTracker initialized: whitelisted timer states are discovered from attached native player states once per game frame even without STATLIST_PostStatList; qualified expiry renewals, early removal and resource-mode polling remain supported.");
+        "Buff Panel 1.0.9 BuffTracker initialized: whitelisted timer states are discovered from attached native player states once per game frame even without STATLIST_PostStatList; qualified expiry renewals, early removal and resource-mode polling remain supported.");
     return true;
 }
 
@@ -1497,14 +1263,11 @@ void Shutdown() noexcept {
     FramePumpScheduled.store(false, std::memory_order_release);
     Whitelist.store({}, std::memory_order_release);
     BuffHudTable = D2RL::CustomTables::InvalidHandle;
-    TableSource = LooseBuffHud::Source::Embedded;
-    TableSourcePath.clear();
     DataTablesListener = D2RL::Lifecycle::InvalidHandle;
     GameplayListeners = {};
     ClearTimerPresenceRecords();
     GetGameFromUnit = nullptr;
     GetStatListFromUnitAndState = nullptr;
-    Resources = nullptr;
     CustomTables = nullptr;
     Threads = nullptr;
     Lifecycle = nullptr;

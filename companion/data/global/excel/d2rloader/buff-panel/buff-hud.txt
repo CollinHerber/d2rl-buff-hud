@@ -1,7 +1,4 @@
-#pragma once
-
-namespace BuffPanel::Systems::BuffTracker::DefaultTables {
-inline constexpr char BuffHud[] = R"BUFFPANELHUD(name	state_id	display_type	value_stat	max_stat	skill_id	value_shift	enabled
+name	state_id	display_type	value_stat	max_stat	skill_id	value_shift	enabled
 resist_fire_aura	3	timer	0	0	0	0	0
 resist_cold_aura	4	timer	0	0	0	0	0
 resist_lightning_aura	5	timer	0	0	0	0	0
@@ -12,11 +9,11 @@ bone_armor	14	resource	132	133	68	8	1
 concentrate_attack_state	15	timer	0	0	0	0	0
 enchant	16	timer	0	0	0	0	1
 chilling_armor	20	timer	0	0	0	0	1
-shout	26	timer	0	0	0	0	1
+shout	26	timer	0	0	138	0	1
 conviction_aura	28	timer	0	0	0	0	0
 energy_shield	30	timer	0	0	0	0	1
 venom	31	timer	0	0	0	0	1
-battle_orders	32	timer	0	0	0	0	1
+battle_orders	32	timer	0	0	149	0	1
 might_aura	33	timer	0	0	0	0	0
 prayer_aura	34	timer	0	0	0	0	0
 holy_fire_aura	35	timer	0	0	0	0	0
@@ -33,7 +30,7 @@ sanctuary_aura	47	timer	0	0	0	0	0
 meditation_aura	48	timer	0	0	0	0	0
 fanaticism_aura	49	timer	0	0	0	0	0
 redemption_aura	50	timer	0	0	0	0	0
-battle_command	51	timer	0	0	0	0	1
+battle_command	51	timer	0	0	155	0	1
 critical_strike_passive	64	timer	0	0	0	0	0
 dodge_passive	65	timer	0	0	0	0	0
 avoid_passive	66	timer	0	0	0	0	0
@@ -113,11 +110,9 @@ hex_purge_caster	202	timer	0	0	0	0	1
 mind_barrier	203	timer	0	0	0	0	0
 enhanced_entropy_passive	204	timer	0	0	0	0	0
 sigil_caster	205	timer	0	0	0	0	0
-psychic_ward	206	resource	361	362	387	8	1
+psychic_ward	206	resource	427	428	387	8	1
 bind_demon_caster	207	timer	0	0	0	0	0
 consume	208	timer	0	0	0	0	1
 engorge	211	timer	0	0	0	0	1
 lightning_enchant	222	timer	0	0	0	0	0
 cold_enchant	223	timer	0	0	0	0	0
-)BUFFPANELHUD";
-} // namespace BuffPanel::Systems::BuffTracker::DefaultTables

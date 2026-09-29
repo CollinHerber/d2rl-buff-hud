@@ -23,8 +23,11 @@ namespace {
 // 93847's stock data. Once the layout is qualified, every actual icon and
 // localized name is read from the active compiled tables, including mod-added
 // skills.
-constexpr std::array<std::uint32_t, 6> LinkWitnessSkillIds{6, 7, 8, 9, 10, 11};
-constexpr std::array<std::uint8_t, 6> LinkWitnessIconCels{0, 2, 4, 6, 8, 10};
+// The first six Skills ids also equal their SkillDesc row indexes. Scanning
+// only those accepts the skill-id field as a second descriptor link. Expansion
+// skills cross the monster-skill gap and distinguish those two relationships.
+constexpr std::array<std::uint32_t, 9> LinkWitnessSkillIds{6, 7, 8, 9, 10, 11, 221, 235, 251};
+constexpr std::array<std::uint8_t, 9> LinkWitnessIconCels{0, 2, 4, 6, 8, 10, 0, 40, 0};
 
 // One stock skill from the start of each original class block. Their compiled
 // charclass values are the native class ids 0..6. Warlock then naturally uses
@@ -195,7 +198,7 @@ struct LinkCandidate final {
         }
         if (!linksValid) continue;
 
-        // Six adjacent Amazon skills must resolve to six distinct descriptors.
+        // Every witness must resolve to a distinct descriptor.
         auto sorted = links;
         std::sort(sorted.begin(), sorted.end());
         if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) continue;
